@@ -250,6 +250,9 @@ class CarState(CarStateBase):
 
       # Read regen stage selection from GEARBOX message
       regen_stage = cp.vl[self.gearbox_msg]["REGEN_STAGE_SELECTION"]
+      
+      # Detect LKAS button press (CRUISE_SETTING = 1 = "lkas_button")
+      lkas_button_pressed = (self.cruise_setting == 1) and (prev_cruise_setting != 1)
 
       # Check for potential paddle button signals (values 5, 6, 7 are undocumented "tbd")
       # This is just for logging/detection - not used for Pass Mode activation yet
@@ -259,7 +262,8 @@ class CarState(CarStateBase):
       # Log signals periodically for debugging
       if self.update_counter % 20 == 0:
         carlog.info(f"[PassMode-Signals] regen_stage={regen_stage}, prev_regen_stage={self.prev_regen_stage}, "
-                      f"cruise_buttons={self.cruise_buttons}, passMode={self.passMode}, brake={ret.brake:.4f}, "
+                      f"cruise_buttons={self.cruise_buttons}, cruise_setting={self.cruise_setting}, "
+                      f"passMode={self.passMode}, brake={ret.brake:.4f}, "
                       f"brakePressed={ret.brakePressed}, cruiseEnabled={ret.cruiseState.enabled}, vEgo={ret.vEgo:.2f}")
 
       # Reset Pass Mode if real brake pressed or cruise disabled without active paddle change
@@ -272,16 +276,19 @@ class CarState(CarStateBase):
         carlog.info(f"[PassMode-Exit] Cruise disabled without paddle activity")
         self.passMode = False
 
-      # Activate Pass Mode when regen stage changes (paddle press detected)
+      # Activate Pass Mode when regen stage changes OR LKAS button pressed (for testing)
       if ret.cruiseState.enabled or self.passMode:
         regen_stage_changed = (regen_stage != self.prev_regen_stage)
 
-        if regen_stage_changed:
+        if regen_stage_changed or lkas_button_pressed:
           prev_passMode = self.passMode
           self.passMode = True
           if not prev_passMode:
-            carlog.info(f"[PassMode-Activate] Regen stage changed: {self.prev_regen_stage} -> {regen_stage}")
-            carlog.info(f"[PassMode-StateChange] Pass Mode ACTIVATED (via paddle press)")
+            if lkas_button_pressed:
+              carlog.info(f"[PassMode-Activate] LKAS button pressed (testing mode)")
+            if regen_stage_changed:
+              carlog.info(f"[PassMode-Activate] Regen stage changed: {self.prev_regen_stage} -> {regen_stage}")
+            carlog.info(f"[PassMode-StateChange] Pass Mode ACTIVATED")
 
       # Update previous regen stage for next cycle
       self.prev_regen_stage = regen_stage
