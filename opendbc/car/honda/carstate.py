@@ -9,6 +9,7 @@ from opendbc.car.honda.values import CAR, DBC, STEER_THRESHOLD, HONDA_BOSCH, HON
                                                  HONDA_NIDEC_ALT_SCM_MESSAGES, HONDA_BOSCH_RADARLESS, \
                                                  HondaFlags, CruiseButtons, CruiseSettings, GearShifter, CarControllerParams
 from opendbc.car.interfaces import CarStateBase
+from opendbc.car.carlog import carlog
 
 TransmissionType = structs.CarParams.TransmissionType
 ButtonType = structs.CarState.ButtonEvent.Type
@@ -48,6 +49,11 @@ class CarState(CarStateBase):
     # When available we use cp.vl["CAR_SPEED"]["ROUGH_CAR_SPEED_2"] to populate vEgoCluster
     # However, on cars without a digital speedometer this is not always present (HRV, FIT, CRV 2016, ILX and RDX)
     self.dash_speed_seen = False
+
+    # Pass Mode state variables (Honda Clarity PHEV only)
+    self.passMode = False
+    self.prev_regen_stage = 0
+    self.update_counter = 0
 
   def update(self, can_parsers) -> structs.CarState:
     cp = can_parsers[Bus.pt]
@@ -218,6 +224,49 @@ class CarState(CarStateBase):
       *create_button_events(self.cruise_buttons, prev_cruise_buttons, BUTTONS_DICT),
       *create_button_events(self.cruise_setting, prev_cruise_setting, SETTINGS_BUTTONS_DICT),
     ]
+
+    # Pass Mode implementation for Honda Clarity PHEV (using REGEN_STAGE_SELECTION)
+    if self.CP.carFingerprint == CAR.HONDA_CLARITY:
+      self.update_counter += 1
+      
+      # Read regen stage selection from GEARBOX message
+      regen_stage = cp.vl[self.gearbox_msg]["REGEN_STAGE_SELECTION"]
+      
+      # Log signals periodically for debugging
+      if self.update_counter % 20 == 0:
+        carlog.info(f"[PassMode-Signals] regen_stage={regen_stage}, prev_regen_stage={self.prev_regen_stage}, "
+                      f"passMode={self.passMode}, brake={ret.brake:.4f}, brakePressed={ret.brakePressed}, "
+                      f"cruiseEnabled={ret.cruiseState.enabled}, vEgo={ret.vEgo:.2f}")
+      
+      # Reset Pass Mode if real brake pressed or cruise disabled without active paddle change
+      if ret.brakePressed and (ret.brake > 0):  # Real brake pedal
+        if self.passMode:
+          carlog.info(f"[PassMode-Exit] Real brake pressed (brake={ret.brake:.4f})")
+          self.passMode = False
+      elif not ret.cruiseState.enabled and (regen_stage == self.prev_regen_stage) and self.passMode:
+        # Cruise disabled and no active paddle press - reset Pass Mode
+        carlog.info(f"[PassMode-Exit] Cruise disabled without paddle activity")
+        self.passMode = False
+      
+      # Activate Pass Mode when regen stage changes (paddle press detected)
+      if ret.cruiseState.enabled or self.passMode:
+        regen_stage_changed = (regen_stage != self.prev_regen_stage)
+        
+        if regen_stage_changed:
+          prev_passMode = self.passMode
+          self.passMode = True
+          if not prev_passMode:
+            carlog.info(f"[PassMode-Activate] Regen stage changed: {self.prev_regen_stage} -> {regen_stage}")
+            carlog.info(f"[PassMode-StateChange] Pass Mode ACTIVATED (via paddle press)")
+      
+      # Update previous regen stage for next cycle
+      self.prev_regen_stage = regen_stage
+      
+      # Publish Pass Mode state to carState
+      ret.passMode = self.passMode
+    else:
+      # For non-Clarity cars, passMode is always False
+      ret.passMode = False
 
     return ret
 
