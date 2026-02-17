@@ -73,6 +73,25 @@ class CarState(CarStateBase):
     self.cruise_setting = cp.vl["SCM_BUTTONS"]["CRUISE_SETTING"]
     self.cruise_buttons = cp.vl["SCM_BUTTONS"]["CRUISE_BUTTONS"]
 
+    # Log SCM_BUTTONS for Honda Clarity to identify paddle signals
+    if self.CP.carFingerprint == CAR.HONDA_CLARITY:
+      # Log any change in CRUISE_BUTTONS (including potential paddle values 5, 6, 7)
+      if self.cruise_buttons != prev_cruise_buttons:
+        carlog.info(f"[PaddleSniff-ButtonChange] CRUISE_BUTTONS: {prev_cruise_buttons} -> {self.cruise_buttons}")
+
+      # Log any change in CRUISE_SETTING
+      if self.cruise_setting != prev_cruise_setting:
+        carlog.info(f"[PaddleSniff-SettingChange] CRUISE_SETTING: {prev_cruise_setting} -> {self.cruise_setting}")
+
+      # Periodic detailed dump of all SCM_BUTTONS signals (every 50 cycles = ~0.5s)
+      if not hasattr(self, 'scm_log_counter'):
+        self.scm_log_counter = 0
+      self.scm_log_counter += 1
+      if self.scm_log_counter % 50 == 0:
+        carlog.info(f"[PaddleSniff-Periodic] SCM_BUTTONS: CRUISE_BUTTONS={self.cruise_buttons}, "
+                    f"CRUISE_SETTING={self.cruise_setting}, "
+                    f"All_signals={cp.vl['SCM_BUTTONS']}")
+
     # used for car hud message
     self.is_metric = not cp.vl["CAR_SPEED"]["IMPERIAL_UNIT"]
     self.v_cruise_factor = CV.MPH_TO_MS if self.dynamic_v_cruise_units and not self.is_metric else CV.KPH_TO_MS
@@ -225,19 +244,24 @@ class CarState(CarStateBase):
       *create_button_events(self.cruise_setting, prev_cruise_setting, SETTINGS_BUTTONS_DICT),
     ]
 
-    # Pass Mode implementation for Honda Clarity PHEV (using REGEN_STAGE_SELECTION)
+    # Pass Mode implementation for Honda Clarity PHEV
     if self.CP.carFingerprint == CAR.HONDA_CLARITY:
       self.update_counter += 1
-      
+
       # Read regen stage selection from GEARBOX message
       regen_stage = cp.vl[self.gearbox_msg]["REGEN_STAGE_SELECTION"]
-      
+
+      # Check for potential paddle button signals (values 5, 6, 7 are undocumented "tbd")
+      # This is just for logging/detection - not used for Pass Mode activation yet
+      if self.cruise_buttons in (5, 6, 7):
+        carlog.info(f"[PaddleSniff-DETECTED] CRUISE_BUTTONS={self.cruise_buttons} (potential paddle!)")
+
       # Log signals periodically for debugging
       if self.update_counter % 20 == 0:
         carlog.info(f"[PassMode-Signals] regen_stage={regen_stage}, prev_regen_stage={self.prev_regen_stage}, "
-                      f"passMode={self.passMode}, brake={ret.brake:.4f}, brakePressed={ret.brakePressed}, "
-                      f"cruiseEnabled={ret.cruiseState.enabled}, vEgo={ret.vEgo:.2f}")
-      
+                      f"cruise_buttons={self.cruise_buttons}, passMode={self.passMode}, brake={ret.brake:.4f}, "
+                      f"brakePressed={ret.brakePressed}, cruiseEnabled={ret.cruiseState.enabled}, vEgo={ret.vEgo:.2f}")
+
       # Reset Pass Mode if real brake pressed or cruise disabled without active paddle change
       if ret.brakePressed and (ret.brake > 0):  # Real brake pedal
         if self.passMode:
@@ -247,21 +271,21 @@ class CarState(CarStateBase):
         # Cruise disabled and no active paddle press - reset Pass Mode
         carlog.info(f"[PassMode-Exit] Cruise disabled without paddle activity")
         self.passMode = False
-      
+
       # Activate Pass Mode when regen stage changes (paddle press detected)
       if ret.cruiseState.enabled or self.passMode:
         regen_stage_changed = (regen_stage != self.prev_regen_stage)
-        
+
         if regen_stage_changed:
           prev_passMode = self.passMode
           self.passMode = True
           if not prev_passMode:
             carlog.info(f"[PassMode-Activate] Regen stage changed: {self.prev_regen_stage} -> {regen_stage}")
             carlog.info(f"[PassMode-StateChange] Pass Mode ACTIVATED (via paddle press)")
-      
+
       # Update previous regen stage for next cycle
       self.prev_regen_stage = regen_stage
-      
+
       # Publish Pass Mode state to carState
       ret.passMode = self.passMode
     else:
