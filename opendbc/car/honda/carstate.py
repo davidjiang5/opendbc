@@ -240,6 +240,12 @@ class CarState(CarStateBase):
       # Detect cruise engagement transition (1-frame buffer to prevent false activation)
       cruise_just_engaged = ret.cruiseState.enabled and not self.prev_cruise_enabled
 
+      # Reset Pass Mode on fresh engagement (handles unclean disengagements)
+      if cruise_just_engaged:
+        if self.passMode:
+          carlog.info(f"[PassMode-Reset] Cruise engaged, resetting Pass Mode from previous session")
+        self.passMode = False
+
       # Log signals periodically for debugging
       if self.update_counter % 20 == 0:
         carlog.info(f"[PassMode-Signals] regen_stage={regen_stage}, prev_regen_stage={self.prev_regen_stage}, "
