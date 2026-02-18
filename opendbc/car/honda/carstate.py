@@ -53,6 +53,7 @@ class CarState(CarStateBase):
     # Pass Mode state variables (Honda Clarity PHEV only)
     self.passMode = False
     self.prev_regen_stage = 0
+    self.prev_cruise_enabled = False
     self.update_counter = 0
 
   def update(self, can_parsers) -> structs.CarState:
@@ -236,6 +237,9 @@ class CarState(CarStateBase):
       # Detect LKAS button press (CRUISE_SETTING = 1 = "lkas_button")
       lkas_button_pressed = (self.cruise_setting == 1) and (prev_cruise_setting != 1)
 
+      # Detect cruise engagement transition (1-frame buffer to prevent false activation)
+      cruise_just_engaged = ret.cruiseState.enabled and not self.prev_cruise_enabled
+
       # Log signals periodically for debugging
       if self.update_counter % 20 == 0:
         carlog.info(f"[PassMode-Signals] regen_stage={regen_stage}, prev_regen_stage={self.prev_regen_stage}, "
@@ -253,10 +257,11 @@ class CarState(CarStateBase):
         self.passMode = False
 
       # Activate Pass Mode when regen stage changes OR LKAS button pressed (for testing)
+      # Skip activation on cruise engagement frame to avoid false trigger from OP clearing regen stages
       if ret.cruiseState.enabled or self.passMode:
         regen_stage_changed = (regen_stage != self.prev_regen_stage)
 
-        if regen_stage_changed or lkas_button_pressed:
+        if (regen_stage_changed or lkas_button_pressed) and not cruise_just_engaged:
           prev_passMode = self.passMode
           self.passMode = True
           if not prev_passMode:
@@ -265,9 +270,12 @@ class CarState(CarStateBase):
             if regen_stage_changed:
               carlog.info(f"[PassMode-Activate] Regen stage changed: {self.prev_regen_stage} -> {regen_stage}")
             carlog.info(f"[PassMode-StateChange] Pass Mode ACTIVATED")
+        elif cruise_just_engaged and regen_stage_changed:
+          carlog.info(f"[PassMode-Skipped] Cruise just engaged, ignoring regen stage change: {self.prev_regen_stage} -> {regen_stage}")
 
-      # Update previous regen stage for next cycle
+      # Update previous states for next cycle
       self.prev_regen_stage = regen_stage
+      self.prev_cruise_enabled = ret.cruiseState.enabled
 
       # Publish Pass Mode state to carState
       ret.passMode = self.passMode
