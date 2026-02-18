@@ -73,25 +73,6 @@ class CarState(CarStateBase):
     self.cruise_setting = cp.vl["SCM_BUTTONS"]["CRUISE_SETTING"]
     self.cruise_buttons = cp.vl["SCM_BUTTONS"]["CRUISE_BUTTONS"]
 
-    # Log SCM_BUTTONS for Honda Clarity to identify paddle signals
-    if self.CP.carFingerprint == CAR.HONDA_CLARITY:
-      # Log any change in CRUISE_BUTTONS (including potential paddle values 5, 6, 7)
-      if self.cruise_buttons != prev_cruise_buttons:
-        carlog.info(f"[PaddleSniff-ButtonChange] CRUISE_BUTTONS: {prev_cruise_buttons} -> {self.cruise_buttons}")
-
-      # Log any change in CRUISE_SETTING
-      if self.cruise_setting != prev_cruise_setting:
-        carlog.info(f"[PaddleSniff-SettingChange] CRUISE_SETTING: {prev_cruise_setting} -> {self.cruise_setting}")
-
-      # Periodic detailed dump of all SCM_BUTTONS signals (every 50 cycles = ~0.5s)
-      if not hasattr(self, 'scm_log_counter'):
-        self.scm_log_counter = 0
-      self.scm_log_counter += 1
-      if self.scm_log_counter % 50 == 0:
-        carlog.info(f"[PaddleSniff-Periodic] SCM_BUTTONS: CRUISE_BUTTONS={self.cruise_buttons}, "
-                    f"CRUISE_SETTING={self.cruise_setting}, "
-                    f"All_signals={cp.vl['SCM_BUTTONS']}")
-
     # used for car hud message
     self.is_metric = not cp.vl["CAR_SPEED"]["IMPERIAL_UNIT"]
     self.v_cruise_factor = CV.MPH_TO_MS if self.dynamic_v_cruise_units and not self.is_metric else CV.KPH_TO_MS
@@ -170,6 +151,7 @@ class CarState(CarStateBase):
     else:
       gear_position = self.shifter_values.get(cp.vl[self.gearbox_msg]["GEAR_SHIFTER"], None)
       ret.gearShifter = self.parse_gear_shifter(gear_position)
+      #ret.regenBraking = cp.vl[self.gearbox_msg].get("REGEN_STAGE_SELECTION", 0) > 0 # Causes unintentional OP disengagement on enagement if regen is already active
 
     ret.gasPressed = cp.vl["POWERTRAIN_DATA"]["PEDAL_GAS"] > 1e-5
 
@@ -250,19 +232,13 @@ class CarState(CarStateBase):
 
       # Read regen stage selection from GEARBOX message
       regen_stage = cp.vl[self.gearbox_msg]["REGEN_STAGE_SELECTION"]
-      
+
       # Detect LKAS button press (CRUISE_SETTING = 1 = "lkas_button")
       lkas_button_pressed = (self.cruise_setting == 1) and (prev_cruise_setting != 1)
-
-      # Check for potential paddle button signals (values 5, 6, 7 are undocumented "tbd")
-      # This is just for logging/detection - not used for Pass Mode activation yet
-      if self.cruise_buttons in (5, 6, 7):
-        carlog.info(f"[PaddleSniff-DETECTED] CRUISE_BUTTONS={self.cruise_buttons} (potential paddle!)")
 
       # Log signals periodically for debugging
       if self.update_counter % 20 == 0:
         carlog.info(f"[PassMode-Signals] regen_stage={regen_stage}, prev_regen_stage={self.prev_regen_stage}, "
-                      f"cruise_buttons={self.cruise_buttons}, cruise_setting={self.cruise_setting}, "
                       f"passMode={self.passMode}, brake={ret.brake:.4f}, "
                       f"brakePressed={ret.brakePressed}, cruiseEnabled={ret.cruiseState.enabled}, vEgo={ret.vEgo:.2f}")
 
