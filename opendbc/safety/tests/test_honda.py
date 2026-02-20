@@ -381,6 +381,12 @@ class TestHondaBoschSafetyBase(HondaBase):
     self.__class__.cnt_brake += 1
     return self.packer.make_can_msg_safety("BRAKE_MODULE", self.PT_BUS, values)
 
+  def _user_regen_msg(self, regen):
+    # GEARBOX_AUTO message with REGEN_STAGE_SELECTION for Honda hybrids
+    values = {"REGEN_STAGE_SELECTION": 1 if regen else 0, "COUNTER": self.cnt_brake % 4}
+    self.__class__.cnt_brake += 1
+    return self.packer.make_can_msg_safety("GEARBOX_AUTO", self.PT_BUS, values)
+
   def _send_brake_msg(self, brake):
     pass
 
@@ -427,6 +433,7 @@ class TestHondaBoschAltBrakeSafetyBase(TestHondaBoschSafetyBase):
     self.assertTrue(self.safety.get_controls_allowed())
 
 
+@common.add_regen_tests
 class TestHondaBoschSafety(HondaPcmEnableBase, TestHondaBoschSafetyBase):
   """
     Covers the Honda Bosch safety mode with stock longitudinal
@@ -437,6 +444,7 @@ class TestHondaBoschSafety(HondaPcmEnableBase, TestHondaBoschSafetyBase):
     self.safety.init_tests()
 
 
+@common.add_regen_tests
 class TestHondaBoschAltBrakeSafety(HondaPcmEnableBase, TestHondaBoschAltBrakeSafetyBase):
   """
     Covers the Honda Bosch safety mode with stock longitudinal and an alternate brake message
@@ -514,6 +522,7 @@ class TestHondaBoschRadarlessSafetyBase(TestHondaBoschSafetyBase):
     self.safety = libsafety_py.libsafety
 
 
+@common.add_regen_tests
 class TestHondaBoschRadarlessSafety(HondaPcmEnableBase, TestHondaBoschRadarlessSafetyBase):
   """
     Covers the Honda Bosch Radarless safety mode with stock longitudinal
@@ -525,6 +534,7 @@ class TestHondaBoschRadarlessSafety(HondaPcmEnableBase, TestHondaBoschRadarlessS
     self.safety.init_tests()
 
 
+@common.add_regen_tests
 class TestHondaBoschRadarlessAltBrakeSafety(HondaPcmEnableBase, TestHondaBoschRadarlessSafetyBase, TestHondaBoschAltBrakeSafetyBase):
   """
     Covers the Honda Bosch Radarless safety mode with stock longitudinal and an alternate brake message
@@ -576,6 +586,7 @@ class TestHondaBoschCANFDSafetyBase(TestHondaBoschSafetyBase):
     self.safety = libsafety_py.libsafety
 
 
+@common.add_regen_tests
 class TestHondaBoschCANFDSafety(HondaPcmEnableBase, TestHondaBoschCANFDSafetyBase):
   """
     Covers the Honda Bosch CANFD safety mode with stock longitudinal
@@ -587,6 +598,7 @@ class TestHondaBoschCANFDSafety(HondaPcmEnableBase, TestHondaBoschCANFDSafetyBas
     self.safety.init_tests()
 
 
+@common.add_regen_tests
 class TestHondaBoschCANFDAltBrakeSafety(HondaPcmEnableBase, TestHondaBoschCANFDSafetyBase, TestHondaBoschAltBrakeSafetyBase):
   """
     Covers the Honda Bosch CANFD safety mode with stock longitudinal and an alternate brake message

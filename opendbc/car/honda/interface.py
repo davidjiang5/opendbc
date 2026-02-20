@@ -222,6 +222,9 @@ class CarInterface(CarInterfaceBase):
       ret.safetyConfigs[-1].safetyParam |= HondaSafetyFlags.RADARLESS.value
     if candidate in HONDA_BOSCH_CANFD:
       ret.safetyConfigs[-1].safetyParam |= HondaSafetyFlags.BOSCH_CANFD.value
+    # Enable regen paddle detection for Honda hybrids with GEARBOX_AUTO message
+    if 0x1A3 in fingerprint[CAN.pt]:
+      ret.safetyConfigs[-1].safetyParam |= HondaSafetyFlags.REGEN.value
 
     # min speed to enable ACC. if car can do stop and go, then set enabling speed
     # to a negative value, so it won't matter. Otherwise, add 0.5 mph margin to not

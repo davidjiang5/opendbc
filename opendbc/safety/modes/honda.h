@@ -17,6 +17,10 @@
 #define HONDA_ALT_BRAKE_ADDR_CHECK(pt_bus)                                                                                              \
   {.msg = {{0x1BE, (pt_bus), 3, 50U, .max_counter = 3U, .ignore_quality_flag = true}, { 0 }, { 0 }}},  /* BRAKE_MODULE */  \
 
+// Regen paddle detection for Honda hybrids (Clarity, Accord Hybrid, etc.)
+#define HONDA_REGEN_ADDR_CHECK(pt_bus)                                                                                                  \
+  {.msg = {{0x1A3, (pt_bus), 8, 50U, .max_counter = 3U, .ignore_quality_flag = true}, { 0 }, { 0 }}},  /* GEARBOX_AUTO */  \
+
 enum {
   HONDA_BTN_NONE = 0,
   HONDA_BTN_MAIN = 1,
@@ -32,6 +36,7 @@ static bool honda_fwd_brake = false;
 static bool honda_bosch_long = false;
 static bool honda_bosch_radarless = false;
 static bool honda_bosch_canfd = false;
+static bool honda_regen = false;
 typedef enum {HONDA_NIDEC, HONDA_BOSCH} HondaHw;
 static HondaHw honda_hw = HONDA_NIDEC;
 
@@ -141,6 +146,13 @@ static void honda_rx_hook(const CANPacket_t *msg) {
 
   if (msg->addr == 0x17CU) {
     gas_pressed = msg->data[0] != 0U;
+  }
+
+  // check regen paddle press on hybrids (GEARBOX_AUTO 0x1A3)
+  // REGEN_STAGE_SELECTION is bits 14:12 (byte 1, bits 6:4)
+  if (honda_regen && (msg->addr == 0x1A3U) && (msg->bus == pt_bus)) {
+    uint8_t regen_stage = (msg->data[1] >> 4) & 0x7U;
+    regen_braking = (regen_stage != 0U);
   }
 
   // disable stock Honda AEB in alternative experience
@@ -289,6 +301,7 @@ static safety_config honda_nidec_init(uint16_t param) {
   honda_bosch_long = false;
   honda_bosch_radarless = false;
   honda_bosch_canfd = false;
+  honda_regen = false;
 
   safety_config ret;
 
@@ -337,6 +350,7 @@ static safety_config honda_bosch_init(uint16_t param) {
   const uint16_t HONDA_PARAM_ALT_BRAKE = 1;
   const uint16_t HONDA_PARAM_RADARLESS = 8;
   const uint16_t HONDA_PARAM_BOSCH_CANFD = 16;
+  const uint16_t HONDA_PARAM_REGEN = 32;
 
   // Bosch radarless has the powertrain bus on bus 0
   static RxCheck honda_bosch_pt0_rx_checks[] = {
@@ -346,6 +360,17 @@ static safety_config honda_bosch_init(uint16_t param) {
   static RxCheck honda_bosch_pt0_alt_brake_rx_checks[] = {
     HONDA_COMMON_RX_CHECKS(0)
     HONDA_ALT_BRAKE_ADDR_CHECK(0)
+  };
+
+  static RxCheck honda_bosch_pt0_regen_rx_checks[] = {
+    HONDA_COMMON_RX_CHECKS(0)
+    HONDA_REGEN_ADDR_CHECK(0)
+  };
+
+  static RxCheck honda_bosch_pt0_alt_brake_regen_rx_checks[] = {
+    HONDA_COMMON_RX_CHECKS(0)
+    HONDA_ALT_BRAKE_ADDR_CHECK(0)
+    HONDA_REGEN_ADDR_CHECK(0)
   };
 
   // Bosch has powertrain on bus 1, verified 0x1A6 does not exist
@@ -358,12 +383,24 @@ static safety_config honda_bosch_init(uint16_t param) {
     HONDA_ALT_BRAKE_ADDR_CHECK(1)
   };
 
+  static RxCheck honda_bosch_pt1_regen_rx_checks[] = {
+    HONDA_COMMON_RX_CHECKS(1)
+    HONDA_REGEN_ADDR_CHECK(1)
+  };
+
+  static RxCheck honda_bosch_pt1_alt_brake_regen_rx_checks[] = {
+    HONDA_COMMON_RX_CHECKS(1)
+    HONDA_ALT_BRAKE_ADDR_CHECK(1)
+    HONDA_REGEN_ADDR_CHECK(1)
+  };
+
   honda_hw = HONDA_BOSCH;
   honda_brake_switch_prev = false;
   honda_bosch_radarless = GET_FLAG(param, HONDA_PARAM_RADARLESS);
   honda_bosch_canfd = GET_FLAG(param, HONDA_PARAM_BOSCH_CANFD);
   // Checking for alternate brake override from safety parameter
   honda_alt_brake_msg = GET_FLAG(param, HONDA_PARAM_ALT_BRAKE);
+  honda_regen = GET_FLAG(param, HONDA_PARAM_REGEN);
 
   // radar disabled so allow gas/brakes
 #ifdef ALLOW_DEBUG
@@ -374,16 +411,32 @@ static safety_config honda_bosch_init(uint16_t param) {
   safety_config ret;
   if (honda_bosch_radarless || honda_bosch_canfd) {
     if (honda_alt_brake_msg) {
-      SET_RX_CHECKS(honda_bosch_pt0_alt_brake_rx_checks, ret);
+      if (honda_regen) {
+        SET_RX_CHECKS(honda_bosch_pt0_alt_brake_regen_rx_checks, ret);
+      } else {
+        SET_RX_CHECKS(honda_bosch_pt0_alt_brake_rx_checks, ret);
+      }
     } else {
-      SET_RX_CHECKS(honda_bosch_pt0_rx_checks, ret);
+      if (honda_regen) {
+        SET_RX_CHECKS(honda_bosch_pt0_regen_rx_checks, ret);
+      } else {
+        SET_RX_CHECKS(honda_bosch_pt0_rx_checks, ret);
+      }
     }
   } else {
-   if (honda_alt_brake_msg) {
-     SET_RX_CHECKS(honda_bosch_pt1_alt_brake_rx_checks, ret);
-   } else {
-     SET_RX_CHECKS(honda_bosch_pt1_rx_checks, ret);
-   }
+    if (honda_alt_brake_msg) {
+      if (honda_regen) {
+        SET_RX_CHECKS(honda_bosch_pt1_alt_brake_regen_rx_checks, ret);
+      } else {
+        SET_RX_CHECKS(honda_bosch_pt1_alt_brake_rx_checks, ret);
+      }
+    } else {
+      if (honda_regen) {
+        SET_RX_CHECKS(honda_bosch_pt1_regen_rx_checks, ret);
+      } else {
+        SET_RX_CHECKS(honda_bosch_pt1_rx_checks, ret);
+      }
+    }
   }
 
   if (honda_bosch_radarless) {
