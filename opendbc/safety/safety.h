@@ -347,11 +347,13 @@ static void generic_rx_checks(void) {
   }
   brake_pressed_prev = brake_pressed;
 
-  // exit controls on rising edge of regen paddle (only if already engaged)
-  // allow engagement if regen is held steady, but always disengage if vehicle moving
-  if (regen_braking && ((!regen_braking_prev && controls_allowed) || vehicle_moving)) {
-    controls_allowed = false;
-  }
+  // Regen paddle: track state only, let openpilot decide disengage behavior.
+  // This allows Pass Mode forks to maintain lateral control during regen,
+  // while non-Pass Mode forks will disengage via openpilot's CS.regenBraking check.
+  // Original enforcement (commented out):
+  // if (regen_braking && ((!regen_braking_prev && controls_allowed) || vehicle_moving)) {
+  //   controls_allowed = false;
+  // }
   regen_braking_prev = regen_braking;
 
   // exit controls on rising edge of steering override/disengage
