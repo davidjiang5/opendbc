@@ -347,8 +347,9 @@ static void generic_rx_checks(void) {
   }
   brake_pressed_prev = brake_pressed;
 
-  // exit controls on rising edge of regen paddle
-  if (regen_braking && (!regen_braking_prev || vehicle_moving)) {
+  // exit controls on rising edge of regen paddle (only if already engaged)
+  // allow engagement if regen is held steady, but always disengage if vehicle moving
+  if (regen_braking && ((!regen_braking_prev && controls_allowed) || vehicle_moving)) {
     controls_allowed = false;
   }
   regen_braking_prev = regen_braking;
