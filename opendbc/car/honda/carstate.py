@@ -263,9 +263,11 @@ class CarState(CarStateBase):
         if self.passMode:
           carlog.info(f"[PassMode-Exit] Real brake pressed (brake={ret.brake:.4f})")
           self.passMode = False
-      elif not ret.cruiseState.enabled and (regen_stage == self.prev_regen_stage) and self.passMode:
-        # Cruise disabled and no active paddle press - reset Pass Mode
-        carlog.info(f"[PassMode-Exit] Cruise disabled without paddle activity")
+      elif not ret.cruiseState.enabled and self.passMode and regen_stage == 0:
+        # Cruise disabled and paddle is fully released - reset Pass Mode.
+        # Do NOT exit when paddle is still held: the PCM may cancel ACC due to
+        # the regen deceleration, which would incorrectly kill Pass Mode mid-hold.
+        carlog.info(f"[PassMode-Exit] Cruise disabled, paddle fully released (regen_stage=0)")
         self.passMode = False
 
       # Activate/Toggle Pass Mode based on regen paddle or LKAS button
@@ -283,10 +285,13 @@ class CarState(CarStateBase):
             else:
               carlog.info(f"[PassMode-Toggle] LKAS button pressed - Pass Mode DEACTIVATED (ACC enabled)")
 
-          # Regen paddle always activates Pass Mode (does not toggle)
-          elif regen_stage_changed and not self.passMode:
+          # Regen paddle always activates Pass Mode (does not toggle).
+          # Use regen_stage > 0 (not just changed) so that if the paddle is already
+          # held when ACC engages, passMode activates on the very next frame instead
+          # of waiting for a second edge that never comes.
+          elif regen_stage > 0 and not self.passMode:
             self.passMode = True
-            carlog.info(f"[PassMode-Activate] Regen stage changed: {self.prev_regen_stage} -> {regen_stage}")
+            carlog.info(f"[PassMode-Activate] Regen paddle active: stage={regen_stage} (prev={self.prev_regen_stage})")
 
         elif cruise_just_engaged and regen_stage_changed:
           carlog.info(f"[PassMode-Skipped] Cruise just engaged, ignoring regen stage change: {self.prev_regen_stage} -> {regen_stage}")
