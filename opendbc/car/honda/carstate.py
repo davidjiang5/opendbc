@@ -245,6 +245,12 @@ class CarState(CarStateBase):
         if self.passMode:
           carlog.info(f"[PassMode-Reset] Cruise engaged, resetting Pass Mode from previous session")
         self.passMode = False
+        # Suppress regenBraking on the engagement frame if regen paddle is held.
+        # regenBraking is treated as a brake press upstream, which would immediately
+        # fire a "pedal pressed" event and block engagement. Pass Mode is still OFF.
+        if regen_stage > 0:
+          carlog.info(f"[Engage] Suppressing regenBraking on engagement frame (regen_stage={regen_stage})")
+          ret.regenBraking = False
 
       # Log signals periodically for debugging
       if self.update_counter % 20 == 0:
@@ -276,12 +282,12 @@ class CarState(CarStateBase):
               carlog.info(f"[PassMode-Toggle] LKAS button pressed - Pass Mode ACTIVATED (ACC disabled)")
             else:
               carlog.info(f"[PassMode-Toggle] LKAS button pressed - Pass Mode DEACTIVATED (ACC enabled)")
-          
+
           # Regen paddle always activates Pass Mode (does not toggle)
           elif regen_stage_changed and not self.passMode:
             self.passMode = True
             carlog.info(f"[PassMode-Activate] Regen stage changed: {self.prev_regen_stage} -> {regen_stage}")
-        
+
         elif cruise_just_engaged and regen_stage_changed:
           carlog.info(f"[PassMode-Skipped] Cruise just engaged, ignoring regen stage change: {self.prev_regen_stage} -> {regen_stage}")
 
