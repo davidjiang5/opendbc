@@ -237,8 +237,11 @@ class CarState(CarStateBase):
       # Detect LKAS button press (CRUISE_SETTING = 1 = "lkas_button")
       lkas_button_pressed = (self.cruise_setting == 1) and (prev_cruise_setting != 1)
 
-      # Detect cruise engagement transition (1-frame buffer to prevent false activation)
+      # Detect cruise engagement/disengagement transitions
       cruise_just_engaged = ret.cruiseState.enabled and not self.prev_cruise_enabled
+      # Honda PCM may disengage ACC in the same frame the regen paddle activates.
+      # Track this so the activation guard below can still fire on the transition frame.
+      cruise_just_disengaged = self.prev_cruise_enabled and not ret.cruiseState.enabled
 
       # Reset Pass Mode on fresh engagement (handles unclean disengagements)
       if cruise_just_engaged:
@@ -272,7 +275,14 @@ class CarState(CarStateBase):
 
       # Activate/Toggle Pass Mode based on regen paddle or LKAS button
       # Skip activation on cruise engagement frame to avoid false trigger from OP clearing regen stages
-      if ret.cruiseState.enabled or self.passMode:
+      # Also allow activation on the cruise disengagement frame: the Honda PCM kills ACC in the same
+      # CAN cycle that regen_stage rises, so cruiseState.enabled is already False on the first frame
+      # the paddle is seen. Without cruise_just_disengaged here both conditions are False and the
+      # activation block is skipped entirely, leaving passMode stuck at False.
+      # Note: other disengagement causes (cancel, brake) may also set passMode=True here transiently,
+      # but that is harmless — OP is already disengaged and cruise_just_engaged will reset it on
+      # the next engagement.
+      if ret.cruiseState.enabled or self.passMode or cruise_just_disengaged:
         regen_stage_changed = (regen_stage != self.prev_regen_stage)
 
         # Handle activation/toggle - but not on cruise engagement frame
