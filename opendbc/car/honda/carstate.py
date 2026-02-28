@@ -261,17 +261,17 @@ class CarState(CarStateBase):
                       f"passMode={self.passMode}, brake={ret.brake:.4f}, "
                       f"brakePressed={ret.brakePressed}, cruiseEnabled={ret.cruiseState.enabled}, vEgo={ret.vEgo:.2f}")
 
-      # Reset Pass Mode if real brake pressed or cruise disabled without active paddle change
+      # Reset Pass Mode if real brake pressed
+      # NOTE: We do NOT exit Pass Mode when cruise is disabled and regen_stage drops to 0.
+      # The Honda PCM auto-clears the regen stage after a period. If we exited Pass Mode on
+      # that transition, the mismatch counter would immediately increment (panda still has
+      # controls_allowed=False for 1-2 frames after the regen clears), causing a spurious
+      # "steering required" alertand disengagement. Pass Mode should only exit via an explicit user action:
+      # real brake press, LKAS button toggle, or fresh ACC engagement.
       if ret.brakePressed and (ret.brake > 0):  # Real brake pedal
         if self.passMode:
           carlog.info(f"[PassMode-Exit] Real brake pressed (brake={ret.brake:.4f})")
           self.passMode = False
-      elif not ret.cruiseState.enabled and self.passMode and regen_stage == 0:
-        # Cruise disabled and paddle is fully released - reset Pass Mode.
-        # Do NOT exit when paddle is still held: the PCM may cancel ACC due to
-        # the regen deceleration, which would incorrectly kill Pass Mode mid-hold.
-        carlog.info(f"[PassMode-Exit] Cruise disabled, paddle fully released (regen_stage=0)")
-        self.passMode = False
 
       # Activate/Toggle Pass Mode based on regen paddle or LKAS button
       # Skip activation on cruise engagement frame to avoid false trigger from OP clearing regen stages
@@ -296,9 +296,6 @@ class CarState(CarStateBase):
               carlog.info(f"[PassMode-Toggle] LKAS button pressed - Pass Mode DEACTIVATED (ACC enabled)")
 
           # Regen paddle always activates Pass Mode (does not toggle).
-          # Use regen_stage > 0 (not just changed) so that if the paddle is already
-          # held when ACC engages, passMode activates on the very next frame instead
-          # of waiting for a second edge that never comes.
           elif regen_stage > 0 and not self.passMode:
             self.passMode = True
             carlog.info(f"[PassMode-Activate] Regen paddle active: stage={regen_stage} (prev={self.prev_regen_stage})")
