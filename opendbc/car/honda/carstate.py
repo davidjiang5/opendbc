@@ -55,7 +55,6 @@ class CarState(CarStateBase):
     self.prev_regen_stage = 0
     self.prev_cruise_enabled = False
     self.update_counter = 0
-    self.regen_pressed_in_pass_mode = False  # True if regen paddle was pressed at any point in the current pass mode session
 
   def update(self, can_parsers) -> structs.CarState:
     cp = can_parsers[Bus.pt]
@@ -235,15 +234,6 @@ class CarState(CarStateBase):
       # Read regen stage selection from GEARBOX message
       regen_stage = cp.vl[self.gearbox_msg]["REGEN_STAGE_SELECTION"]
 
-      # Track whether regen was pressed at any point during this pass mode session.
-      # When regen fires, panda independently sets controls_allowed=False as a hardware
-      # safety interlock. Panda only re-enables it when the Honda PCM re-engages ACC
-      # (via accel/resume) plus a valid steering message. The LKAS button has no path
-      # to reset panda's state — so once regen was pressed this session, LKAS exit is
-      # permanently blocked until a full ACC re-engagement clears the session flag.
-      if self.passMode and regen_stage > 0:
-        self.regen_pressed_in_pass_mode = True
-
       # Detect LKAS button press (CRUISE_SETTING = 1 = "lkas_button")
       lkas_button_pressed = (self.cruise_setting == 1) and (prev_cruise_setting != 1)
 
@@ -258,7 +248,6 @@ class CarState(CarStateBase):
         if self.passMode:
           carlog.info(f"[PassMode-Reset] Cruise engaged, resetting Pass Mode from previous session")
         self.passMode = False
-        self.regen_pressed_in_pass_mode = False  # Full ACC re-engagement resets panda state
         # Suppress regenBraking on the engagement frame if regen paddle is held.
         # regenBraking is treated as a brake press upstream, which would immediately
         # fire a "pedal pressed" event and block engagement. Pass Mode is still OFF.
@@ -298,21 +287,13 @@ class CarState(CarStateBase):
 
         # Handle activation/toggle - but not on cruise engagement frame
         if not cruise_just_engaged:
-          # LKAS button toggles Pass Mode on/off.
-          # Guard deactivation: if regen was pressed at any point this pass mode session,
-          # panda's controls_allowed is stuck False and cannot be reset from this side.
-          # Only a full ACC re-engagement (accel/resume) syncs panda's state back.
-          # Activation (passMode=False -> True) is always allowed.
+          # LKAS button toggles Pass Mode on/off
           if lkas_button_pressed:
-            if self.passMode and self.regen_pressed_in_pass_mode:
-              carlog.info(f"[PassMode-Toggle] LKAS deactivation blocked - regen was pressed this session, "
-                          f"panda controls_allowed is stuck False. Use accel/resume to exit pass mode.")
+            self.passMode = not self.passMode
+            if self.passMode:
+              carlog.info(f"[PassMode-Toggle] LKAS button pressed - Pass Mode ACTIVATED (ACC disabled)")
             else:
-              self.passMode = not self.passMode
-              if self.passMode:
-                carlog.info(f"[PassMode-Toggle] LKAS button pressed - Pass Mode ACTIVATED (ACC disabled)")
-              else:
-                carlog.info(f"[PassMode-Toggle] LKAS button pressed - Pass Mode DEACTIVATED (ACC enabled)")
+              carlog.info(f"[PassMode-Toggle] LKAS button pressed - Pass Mode DEACTIVATED (ACC enabled)")
 
           # Regen paddle always activates Pass Mode (does not toggle).
           elif regen_stage > 0 and not self.passMode:
