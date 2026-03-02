@@ -267,13 +267,13 @@ class CarState(CarStateBase):
       # that transition, the mismatch counter would immediately increment (panda still has
       # controls_allowed=False for 1-2 frames after the regen clears), causing a spurious
       # "steering required" alertand disengagement. Pass Mode should only exit via an explicit user action:
-      # real brake press, LKAS button toggle, or fresh ACC engagement.
+      # real brake press or fresh ACC engagement.
       if ret.brakePressed and (ret.brake > 0):  # Real brake pedal
         if self.passMode:
           carlog.info(f"[PassMode-Exit] Real brake pressed (brake={ret.brake:.4f})")
           self.passMode = False
 
-      # Activate/Toggle Pass Mode based on regen paddle or LKAS button
+      # Activate Pass Mode based on regen paddle or LKAS button
       # Skip activation on cruise engagement frame to avoid false trigger from OP clearing regen stages
       # Also allow activation on the cruise disengagement frame: the Honda PCM kills ACC in the same
       # CAN cycle that regen_stage rises, so cruiseState.enabled is already False on the first frame
@@ -285,15 +285,11 @@ class CarState(CarStateBase):
       if ret.cruiseState.enabled or self.passMode or cruise_just_disengaged:
         regen_stage_changed = (regen_stage != self.prev_regen_stage)
 
-        # Handle activation/toggle - but not on cruise engagement frame
+        # Handle pass mode activation - but not on cruise engagement frame
         if not cruise_just_engaged:
-          # LKAS button toggles Pass Mode on/off
           if lkas_button_pressed:
-            self.passMode = not self.passMode
-            if self.passMode:
-              carlog.info(f"[PassMode-Toggle] LKAS button pressed - Pass Mode ACTIVATED (ACC disabled)")
-            else:
-              carlog.info(f"[PassMode-Toggle] LKAS button pressed - Pass Mode DEACTIVATED (ACC enabled)")
+            self.passMode = True
+            carlog.info(f"[PassMode-Activate] LKAS button pressed - Pass Mode ACTIVATED (ACC disabled)")
 
           # Regen paddle always activates Pass Mode (does not toggle).
           elif regen_stage > 0 and not self.passMode:
