@@ -113,7 +113,7 @@ class CarController(CarControllerBase):
     actuators = CC.actuators
     hud_control = CC.hudControl
     hud_v_cruise = hud_control.setSpeed / CS.v_cruise_factor if hud_control.speedVisible else 255
-    pcm_cancel_cmd = CC.cruiseControl.cancel
+    pcm_cancel_cmd = CC.cruiseControl.cancel or CS.passModeCancelPending
 
     if CC.longActive:
       accel = actuators.accel

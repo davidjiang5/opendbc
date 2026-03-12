@@ -55,6 +55,7 @@ class CarState(CarStateBase):
     self.prev_regen_stage = 0
     self.prev_cruise_enabled = False
     self.update_counter = 0
+    self.passModeCancelPending = False  # one-shot: carcontroller sends cancel on the frame LKAS activates pass mode
 
   def update(self, can_parsers) -> structs.CarState:
     cp = can_parsers[Bus.pt]
@@ -230,6 +231,7 @@ class CarState(CarStateBase):
     # Pass Mode implementation for Honda Clarity PHEV
     if self.CP.carFingerprint == CAR.HONDA_CLARITY:
       self.update_counter += 1
+      self.passModeCancelPending = False  # reset each frame; set below only on LKAS activation
 
       # Read regen stage selection from GEARBOX message
       regen_stage = cp.vl[self.gearbox_msg]["REGEN_STAGE_SELECTION"]
@@ -289,7 +291,9 @@ class CarState(CarStateBase):
         if not cruise_just_engaged:
           if lkas_button_pressed:
             self.passMode = True
-            carlog.info(f"[PassMode-Activate] LKAS button pressed - Pass Mode ACTIVATED (ACC disabled)")
+            if ret.cruiseState.enabled:
+              self.passModeCancelPending = True  # tell carcontroller to send one cancel to kill PCM ACC
+            carlog.info(f"[PassMode-Activate] LKAS button pressed - Pass Mode ACTIVATED (ACC disabled, cancelPending={self.passModeCancelPending})")
 
           # Regen paddle always activates Pass Mode (does not toggle).
           elif regen_stage > 0 and not self.passMode:
